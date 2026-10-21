@@ -1,0 +1,86 @@
+name: Build Stream AI Demo IPA
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-demo-ipa.yml'
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Create native SwiftUI showcase
+        run: |
+          mkdir -p Showcase
+          cat > Showcase/ShowcaseApp.swift <<'SWIFT'
+          import SwiftUI
+          import StreamChatAI
+
+          @main
+          struct ShowcaseApp: App {
+              var body: some Scene {
+                  WindowGroup { ShowcaseView() }
+              }
+          }
+
+          struct ShowcaseView: View {
+              @State private var thinking = false
+              @State private var text = "I searched the available information and compared the relevant approaches. Here are the main findings."
+              var body: some View {
+                  NavigationStack {
+                      ScrollView {
+                          VStack(alignment: .leading, spacing: 24) {
+                              Text("Native AI components").font(.largeTitle.bold())
+                              Text("Reasoning and streaming UI showcase").foregroundStyle(.secondary)
+                              StreamingReasoningView(text: text, isThinking: thinking, duration: 12)
+                              Divider()
+                              AITypingIndicatorView(text: "Checking external sources")
+                              Divider()
+                              StreamingMessageView(content: "**AI response**\\n\\nThis is a native SwiftUI demo with **Markdown**, reasoning and streaming components.", isGenerating: false)
+                              Button(thinking ? "Finish thinking" : "Start thinking") { thinking.toggle() }
+                                  .buttonStyle(.borderedProminent)
+                          }
+                          .padding()
+                      }
+                      .navigationTitle("Stream AI Demo")
+                  }
+              }
+          }
+          SWIFT
+          cat > project.yml <<'YAML'
+          name: StreamAIShowcase
+          options:
+            deploymentTarget:
+              iOS: '26.0'
+          packages:
+            StreamChatAI:
+              path: .
+          targets:
+            StreamAIShowcase:
+              type: application
+              platform: iOS
+              sources: [Showcase]
+              dependencies:
+                - package: StreamChatAI
+                  product: StreamChatAI
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.davidpovarsky.streamaishowcase
+                  GENERATE_INFOPLIST_FILE: YES
+                  SWIFT_VERSION: '6.0'
+          YAML
+          xcodegen generate
+      - name: Compile for physical iOS devices
+        run: xcodebuild -project StreamAIShowcase.xcodeproj -scheme StreamAIShowcase -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Export unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/StreamAIShowcase.app Payload/
+          zip -qry StreamAIShowcase-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StreamAIShowcase-unsigned-IPA
+          path: StreamAIShowcase-unsigned.ipa
+          if-no-files-found: error
